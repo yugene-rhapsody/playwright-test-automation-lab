@@ -17,9 +17,65 @@ globs: ["apps/console/tests/**/*.{ts,tsx}"]
 - 사용자가 실제로 브라우저에서 도달할 수 있는 경로만 테스트
 - 코드상 가능하지만 UI에서 도달 불가능한 경로는 테스트하지 않음
 
-## 2. Flaky Test 방지 (가장 중요)
+## 2. 글로벌 핸들러 (fixture에 등록 필수)
 
-### 셀렉터 — 깨지지 않는 셀렉터만 사용
+### dialog/toast/에러 팝업 자동 처리
+Vite overlay 제거만으로는 부족하다. dialog, confirm, alert, toast, 에러 모달이 테스트 도중 뜨면 블로킹된다. fixture에서 전역으로 처리할 것.
+
+```typescript
+// fixtures/test.ts
+import { test as base } from '@playwright/test'
+
+export const test = base.extend({
+    page: async ({ page }, use) => {
+        // dialog (alert, confirm, prompt) 자동 처리
+        page.on('dialog', async dialog => {
+            await dialog.accept()
+        })
+
+        // Vite 에러 오버레이 제거
+        await page.addInitScript(() => {
+            window.addEventListener('vite:error', (e) => {
+                e.stopImmediatePropagation()
+            })
+            // vite-plugin-checker overlay 제거
+            const observer = new MutationObserver((mutations) => {
+                for (const mutation of mutations) {
+                    mutation.addedNodes.forEach((node) => {
+                        if (node instanceof HTMLElement && node.tagName === 'VITE-PLUGIN-CHECKER-ERROR-OVERLAY') {
+                            node.remove()
+                        }
+                    })
+                }
+            })
+            observer.observe(document.documentElement, { childList: true, subtree: true })
+        })
+
+        // 콘솔 에러 수집 (디버깅용)
+        const consoleErrors: string[] = []
+        page.on('console', msg => {
+            if (msg.type() === 'error') consoleErrors.push(msg.text())
+        })
+
+        await use(page)
+    }
+})
+
+export { expect } from '@playwright/test'
+```
+
+모든 테스트 파일은 `@playwright/test` 대신 `../fixtures/test`에서 import할 것:
+```typescript
+// ✅
+import { test, expect } from '../fixtures/test'
+
+// ❌
+import { test, expect } from '@playwright/test'
+```
+
+## 3. Flaky Test 방지 (가장 중요)
+
+### 셀렉터 — UX 기반 Selector 전략
 ```
 ✅ 사용                              ❌ 금지
 ─────────────────────────────────────────────────────
@@ -29,8 +85,28 @@ getByTestId('campaign-title')         순서 의존 셀렉터
 getByLabel('이름')                    DOM 구조에 의존하는 selector chain
 page.locator('[data-cy="..."]')       xpath
 ```
+
+**nth() 셀렉터 교체 가이드:**
+```typescript
+// ❌ nth()는 DOM 순서가 바뀌면 엉뚱한 요소를 타겟팅
+await page.locator('.campaign-row').nth(2).click()
+
+// ✅ 텍스트나 속성으로 특정
+await page.locator('.campaign-row').filter({ hasText: '내 캠페인' }).click()
+
+// ✅ data 속성으로 특정
+await page.locator('[data-cy="campaign-row"][data-id="abc123"]').click()
+
+// ✅ 역할 + 이름으로 특정
+await page.getByRole('row', { name: '내 캠페인' }).click()
+
+// ✅ 테이블에서 특정 행 찾기
+await page.getByRole('row').filter({ hasText: '내 캠페인' }).getByRole('button', { name: '편집' }).click()
+```
+
 - 셀렉터가 UI 변경에 영향받지 않는지 자문할 것: "이 셀렉터는 디자이너가 버튼 위치를 옮기면 깨지는가?"
 - 깨진다면 다른 셀렉터를 쓸 것
+- **nth()를 써야만 하는 상황이면, 상위 요소를 filter로 좁힌 뒤 사용**
 
 ### 대기 — 조건 기반 대기만 사용
 ```typescript
@@ -67,6 +143,87 @@ await page.getByRole('button', { name: '생성' }).click()
 - 고유한 이름 사용: `uniqueName('campaign')` → `test-campaign-1743648273-abc` 같은 패턴
 - 고정된 ID, 이름, 이메일을 여러 테스트에서 공유 금지
 - 예외: serial 모드에서 순서가 보장되는 CRUD 플로우 (생성 → 수정 → 삭제)
+
+### networkidle 대신 waitForApiSettle 사용
+`waitForLoadState('networkidle')`는 SPA에서 폴링/웹소켓이 idle을 방해해 타임아웃이 발생한다. XHR/fetch 요청만 추적하는 유틸로 교체할 것.
+
+```typescript
+// helpers/wait.ts
+import { Page } from '@playwright/test'
+
+/**
+ * 진행 중인 API 요청이 모두 끝날 때까지 대기 (폴링/웹소켓 무시)
+ * networkidle 대신 사용
+ */
+export async function waitForApiSettle(page: Page, options?: { timeout?: number, ignorePatterns?: RegExp[] }) {
+    const timeout = options?.timeout ?? 10000
+    const ignorePatterns = options?.ignorePatterns ?? [
+        /polling/i, /heartbeat/i, /health/i, /ws:/i, /wss:/i,
+        /hot-update/i, /__vite/i
+    ]
+
+    let pending = 0
+    const onRequest = (request: any) => {
+        const url = request.url()
+        if (ignorePatterns.some(p => p.test(url))) return
+        if (['fetch', 'xhr'].includes(request.resourceType())) pending++
+    }
+    const onResponse = () => { if (pending > 0) pending-- }
+    const onFailed = () => { if (pending > 0) pending-- }
+
+    page.on('request', onRequest)
+    page.on('response', onResponse)
+    page.on('requestfailed', onFailed)
+
+    try {
+        await page.waitForFunction(() => true, null, { timeout: 500 })  // 최소 대기
+        const start = Date.now()
+        while (pending > 0 && Date.now() - start < timeout) {
+            await page.waitForTimeout(100)
+        }
+    } finally {
+        page.off('request', onRequest)
+        page.off('response', onResponse)
+        page.off('requestfailed', onFailed)
+    }
+}
+
+/**
+ * 특정 조건이 충족될 때까지 대기 (waitForTimeout 대체)
+ * PDF 생성 등 비동기 작업 대기에 사용
+ */
+export async function waitForCondition(
+    page: Page,
+    condition: () => Promise<boolean>,
+    options?: { timeout?: number, interval?: number, message?: string }
+) {
+    const timeout = options?.timeout ?? 30000
+    const interval = options?.interval ?? 500
+    const message = options?.message ?? 'Condition not met'
+    const start = Date.now()
+
+    while (Date.now() - start < timeout) {
+        if (await condition()) return
+        await page.waitForTimeout(interval)
+    }
+    throw new Error(`${message} (timeout: ${timeout}ms)`)
+}
+```
+
+```typescript
+// ✅ networkidle 대신
+await waitForApiSettle(page)
+
+// ✅ waitForTimeout(5000) 대신 (예: PDF 생성 대기)
+await waitForCondition(page, async () => {
+    const download = page.locator('[data-cy="pdf-download"]')
+    return await download.isVisible()
+}, { timeout: 15000, message: 'PDF 생성 대기 중' })
+
+// ❌ 금지
+await page.waitForLoadState('networkidle')
+await page.waitForTimeout(5000)
+```
 
 ### 네트워크/환경 변동 대응
 ```typescript
