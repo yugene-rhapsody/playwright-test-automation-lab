@@ -44,26 +44,40 @@ jobs:
           echo "=== Changed files ==="
           echo "$CHANGED"
 
+          # 도메인 감지 후 실제 존재하는 디렉토리만 포함
           PROJECTS=""
-          if echo "$CHANGED" | grep -qi "campaign"; then PROJECTS="$PROJECTS tests/campaign/"; fi
-          if echo "$CHANGED" | grep -qi "creative"; then PROJECTS="$PROJECTS tests/creative/"; fi
-          if echo "$CHANGED" | grep -qi "ad-unit\|adunit"; then PROJECTS="$PROJECTS tests/ad-unit/"; fi
-          if echo "$CHANGED" | grep -qi "setting"; then PROJECTS="$PROJECTS tests/settings/"; fi
-          if echo "$CHANGED" | grep -qi "dashboard"; then PROJECTS="$PROJECTS tests/dashboard/"; fi
-          if echo "$CHANGED" | grep -qi "payment\|billing"; then PROJECTS="$PROJECTS tests/payments/"; fi
-          if echo "$CHANGED" | grep -qi "auth\|login"; then PROJECTS="$PROJECTS tests/auth/"; fi
-          if echo "$CHANGED" | grep -qi "report"; then PROJECTS="$PROJECTS tests/report/"; fi
-          if echo "$CHANGED" | grep -qi "navigation\|sidebar"; then PROJECTS="$PROJECTS tests/navigation/"; fi
-          if echo "$CHANGED" | grep -qi "onboarding"; then PROJECTS="$PROJECTS tests/onboarding/"; fi
-          if echo "$CHANGED" | grep -qi "targeting"; then PROJECTS="$PROJECTS tests/targeting/"; fi
-          if echo "$CHANGED" | grep -qi "app-crud\|app.*crud"; then PROJECTS="$PROJECTS tests/app-crud/"; fi
-          if echo "$CHANGED" | grep -qi "adproduct"; then PROJECTS="$PROJECTS tests/adproduct/"; fi
-          if echo "$CHANGED" | grep -qi "event"; then PROJECTS="$PROJECTS tests/event/"; fi
-          if echo "$CHANGED" | grep -qi "property"; then PROJECTS="$PROJECTS tests/property/"; fi
+          check_domain() {
+            local keyword="$1" dir="$2"
+            if echo "$CHANGED" | grep -qi "$keyword"; then
+              if [ -d "apps/console/$dir" ] && [ -n "$(find apps/console/$dir -name '*.spec.ts' 2>/dev/null | head -1)" ]; then
+                PROJECTS="$PROJECTS $dir"
+                echo "  Matched: $keyword → $dir"
+              else
+                echo "  Matched keyword '$keyword' but no tests in $dir"
+              fi
+            fi
+          }
 
+          check_domain "campaign" "tests/campaign/"
+          check_domain "creative" "tests/creative/"
+          check_domain "ad-unit\|adunit" "tests/ad-unit/"
+          check_domain "setting" "tests/settings/"
+          check_domain "dashboard" "tests/dashboard/"
+          check_domain "payment\|billing" "tests/payments/"
+          check_domain "auth\|login" "tests/auth/"
+          check_domain "report" "tests/report/"
+          check_domain "navigation\|sidebar" "tests/navigation/"
+          check_domain "onboarding" "tests/onboarding/"
+          check_domain "targeting" "tests/targeting/"
+          check_domain "app-crud" "tests/app-crud/"
+          check_domain "adproduct" "tests/adproduct/"
+          check_domain "event" "tests/event/"
+          check_domain "property" "tests/property/"
+
+          # 매칭된 도메인이 없거나 테스트 디렉토리가 없으면 전체 실행
           if [ -z "$PROJECTS" ]; then
             PROJECTS="tests/"
-            echo "No specific domain matched. Running all tests."
+            echo "No matching domain tests found. Running all tests."
           fi
 
           echo "test_paths=$PROJECTS" >> $GITHUB_OUTPUT
