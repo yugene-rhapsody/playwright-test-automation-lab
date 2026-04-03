@@ -41,7 +41,7 @@ jobs:
           else
             echo "$CHANGED source file(s) changed."
           fi
-        working-directory: .
+        working-directory: apps/console
 
       - name: Generate Tests
         if: steps.changes.outputs.count != '0'
@@ -96,6 +96,6 @@ jobs:
           )" \
             --base main \
             --head "$BRANCH_NAME"
-        working-directory: .
+        working-directory: apps/console
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
