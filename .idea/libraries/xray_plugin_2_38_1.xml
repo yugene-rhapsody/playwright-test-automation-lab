@@ -1,9 +1,0 @@
-<component name="libraryTable">
-  <library name="xray-plugin-2.38.1">
-    <CLASSES>
-      <root url="jar://$PROJECT_DIR$/apps/console/node_modules/allure-commandline/dist/plugins/xray-plugin/xray-plugin-2.38.1.jar!/" />
-    </CLASSES>
-    <JAVADOC />
-    <SOURCES />
-  </library>
-</component>
