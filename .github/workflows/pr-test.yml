@@ -81,17 +81,6 @@ jobs:
         if: always()
         run: npx github-actions-ctrf ctrf/ctrf-report.json
 
-      - name: Slack Notification
-        uses: 8398a7/action-slack@v3
-        with:
-          status: ${{ job.status }}
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          fields: eventName,job,workflow,author,repo,commit,ref
-          if_mention: failure,cancelled
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-        if: failure()
-
       - name: Fail if tests and healing both failed
         if: steps.test.outcome == 'failure' && steps.heal.outcome == 'failure'
         run: exit 1
