@@ -133,6 +133,9 @@ while IFS= read -r file; do
     TEST_CODE=$(echo "$RESPONSE" | jq -r '.content[0].text // empty')
 
     if [ -n "$TEST_CODE" ] && [ "$TEST_CODE" != "null" ]; then
+        # markdown 펜스 제거 (```typescript ... ``` → 순수 코드만)
+        TEST_CODE=$(echo "$TEST_CODE" | sed '/^```[a-z]*/d' | sed '/^```$/d')
+
         TIMESTAMP=$(date +%Y%m%d-%H%M%S)
         OUTPUT_FILE="$OUTPUT_DIR/${DOMAIN}-auto-${TIMESTAMP}.spec.ts"
         echo "$TEST_CODE" > "$OUTPUT_FILE"
