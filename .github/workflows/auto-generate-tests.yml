@@ -34,14 +34,20 @@ jobs:
       - name: Check for source changes
         id: changes
         run: |
-          CHANGED=$(git diff HEAD~1 --name-only --diff-filter=ACMR -- 'apps/console/src/**' | wc -l | tr -d ' ')
+          echo "=== git log ==="
+          git log --oneline -3
+          echo "=== diff files ==="
+          git diff HEAD~1 --name-only --diff-filter=ACMR || true
+          echo "=== filtered ==="
+          CHANGED=$(git diff HEAD~1 --name-only --diff-filter=ACMR -- 'apps/console/src/' | wc -l | tr -d ' ')
           echo "count=$CHANGED" >> $GITHUB_OUTPUT
           if [ "$CHANGED" -eq 0 ]; then
             echo "No source changes detected."
           else
             echo "$CHANGED source file(s) changed."
+            git diff HEAD~1 --name-only --diff-filter=ACMR -- 'apps/console/src/'
           fi
-        working-directory: apps/console
+        working-directory: .
 
       - name: Generate Tests
         if: steps.changes.outputs.count != '0'
@@ -63,6 +69,7 @@ jobs:
 
       - name: Create PR with generated tests
         if: steps.changes.outputs.count != '0' && steps.generated.outputs.count != '0'
+        working-directory: .
         run: |
           TIMESTAMP=$(date +%Y%m%d-%H%M%S)
           BRANCH_NAME="test/auto-${TIMESTAMP}"
