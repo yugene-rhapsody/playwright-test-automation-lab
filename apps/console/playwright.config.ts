@@ -11,7 +11,8 @@ export default defineConfig({
             ['github'],
             ['list'],
             ['html', { outputFolder: 'playwright-report', open: 'never' }],
-            ['allure-playwright']
+            ['allure-playwright'],
+            ['playwright-ctrf-json-reporter', { outputDir: 'ctrf' }]
         ]
         : 'html',
     use: {

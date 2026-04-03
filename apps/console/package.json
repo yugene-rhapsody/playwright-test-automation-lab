@@ -9,7 +9,8 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",
+    "allure-commandline": "^2.30.0",
     "allure-playwright": "^3.0.0",
-    "allure-commandline": "^2.30.0"
+    "playwright-ctrf-json-reporter": "^0.0.29"
   }
 }
