@@ -84,3 +84,14 @@ jobs:
       - name: Fail if tests and healing both failed
         if: steps.test.outcome == 'failure' && steps.heal.outcome == 'failure'
         run: exit 1
+
+      - name: Slack Notification
+        if: failure()
+        uses: 8398a7/action-slack@v3
+        with:
+          status: ${{ job.status }}
+          fields: eventName,job,workflow,author,repo,commit,ref
+          if_mention: failure,cancelled
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
