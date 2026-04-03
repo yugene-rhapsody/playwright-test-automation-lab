@@ -1,20 +1,22 @@
 #!/bin/bash
 # generate-tests.sh — git diff 기반으로 Claude API가 Playwright 테스트를 자동 생성
-# 사용법: ./scripts/generate-tests.sh
 # 환경변수: ANTHROPIC_API_KEY
+# 실행 위치: 레포 루트 또는 apps/console/
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-CONSOLE_DIR="$(dirname "$SCRIPT_DIR")"
-REPO_ROOT="$CONSOLE_DIR/../.."
+# 레포 루트로 이동
+REPO_ROOT=$(git rev-parse --show-toplevel)
+cd "$REPO_ROOT"
+
+CONSOLE_DIR="$REPO_ROOT/apps/console"
 RULES_FILE="$REPO_ROOT/.claude/rules/e2e-testing.md"
 OUTPUT_DIR="$CONSOLE_DIR/tests/auto-generated"
 
 mkdir -p "$OUTPUT_DIR"
 
-# 변경된 소스 파일 추출 (apps/console/src/ 만 대상)
-CHANGED_FILES=$(git diff HEAD~1 --name-only --diff-filter=ACMR -- 'apps/console/src/**' 2>/dev/null || echo "")
+# 변경된 소스 파일 추출
+CHANGED_FILES=$(git diff HEAD~1 --name-only --diff-filter=ACMR -- 'apps/console/src/' 2>/dev/null || echo "")
 
 if [ -z "$CHANGED_FILES" ]; then
     echo "No source file changes detected. Skipping test generation."
@@ -26,7 +28,7 @@ echo "Changed files:"
 echo "$CHANGED_FILES"
 echo ""
 
-# 도메인 매핑: src 경로 → 테스트 도메인
+# 도메인 매핑
 get_domain() {
     local file="$1"
     case "$file" in
@@ -41,7 +43,6 @@ get_domain() {
         *onboarding*|*Onboarding*) echo "onboarding" ;;
         *targeting*|*Targeting*) echo "targeting" ;;
         *navigation*|*Navigation*|*sidebar*|*Sidebar*) echo "navigation" ;;
-        *app*|*App*) echo "app-crud" ;;
         *adproduct*|*AdProduct*) echo "adproduct" ;;
         *event*|*Event*) echo "event" ;;
         *property*|*Property*) echo "property" ;;
@@ -49,7 +50,7 @@ get_domain() {
     esac
 }
 
-# 도메인별 기존 테스트 예시 가져오기 (최대 2개)
+# 도메인별 기존 테스트 예시 (최대 2개, 앞 80줄)
 get_example_tests() {
     local domain="$1"
     local test_dir="$CONSOLE_DIR/tests/$domain"
@@ -62,36 +63,43 @@ get_example_tests() {
     fi
 }
 
-# 규칙 파일 읽기
+# 규칙 파일
 RULES_CONTENT=""
 if [ -f "$RULES_FILE" ]; then
     RULES_CONTENT=$(cat "$RULES_FILE")
 fi
 
-# 변경된 파일별로 처리
-GENERATED=0
-DOMAINS_PROCESSED=""
+# jq 필요
+if ! command -v jq &> /dev/null; then
+    echo "jq not found. Installing..."
+    apt-get update -qq && apt-get install -y -qq jq || { echo "Failed to install jq"; exit 1; }
+fi
 
-echo "$CHANGED_FILES" | while IFS= read -r file; do
+# 도메인별로 처리
+GENERATED=0
+PROCESSED_DOMAINS=""
+
+while IFS= read -r file; do
     [ -z "$file" ] && continue
 
     DOMAIN=$(get_domain "$file")
 
-    # 같은 도메인은 한 번만 처리
-    if echo "$DOMAINS_PROCESSED" | grep -q "$DOMAIN"; then
+    # 같은 도메인은 한 번만
+    if echo "$PROCESSED_DOMAINS" | grep -q "$DOMAIN"; then
         continue
     fi
-    DOMAINS_PROCESSED="$DOMAINS_PROCESSED $DOMAIN"
+    PROCESSED_DOMAINS="$PROCESSED_DOMAINS $DOMAIN"
 
     echo "Processing domain: $DOMAIN (from $file)"
 
-    # 해당 도메인의 모든 변경 파일 diff 수집
-    DOMAIN_DIFF=$(echo "$CHANGED_FILES" | while IFS= read -r f; do
+    # diff 수집
+    DOMAIN_DIFF=""
+    while IFS= read -r f; do
         f_domain=$(get_domain "$f")
         if [ "$f_domain" = "$DOMAIN" ]; then
-            git diff HEAD~1 -- "$f" 2>/dev/null
+            DOMAIN_DIFF="$DOMAIN_DIFF$(git diff HEAD~1 -- "$f" 2>/dev/null)"
         fi
-    done)
+    done <<< "$CHANGED_FILES"
 
     if [ -z "$DOMAIN_DIFF" ]; then
         echo "  No diff content for $DOMAIN. Skipping."
@@ -99,8 +107,6 @@ echo "$CHANGED_FILES" | while IFS= read -r file; do
     fi
 
     EXAMPLES=$(get_example_tests "$DOMAIN")
-
-    mkdir -p "$OUTPUT_DIR"
 
     # Claude API 호출
     RESPONSE=$(curl -s https://api.anthropic.com/v1/messages \
@@ -115,7 +121,7 @@ echo "$CHANGED_FILES" | while IFS= read -r file; do
             '{
                 model: "claude-sonnet-4-20250514",
                 max_tokens: 8192,
-                system: ("You are a Playwright E2E test generator for the Adrop ads console.\n\nRULES:\n" + $rules + "\n\nEXISTING TEST EXAMPLES:\n" + $examples + "\n\nIMPORTANT:\n- Output ONLY valid TypeScript Playwright test code\n- No markdown fences, no explanations\n- Follow the exact same import patterns as the examples\n- Use semantic selectors (getByRole, getByText, data-cy)\n- Use conditional waits, never waitForTimeout\n- Use the test fixture from ../fixtures/test\n- Korean UI text should use i18n constants from test-packages/constants"),
+                system: ("You are a Playwright E2E test generator.\n\nRULES:\n" + $rules + "\n\nEXISTING TEST EXAMPLES:\n" + $examples + "\n\nIMPORTANT:\n- Output ONLY valid TypeScript Playwright test code\n- No markdown fences, no explanations\n- Use semantic selectors (getByRole, getByText, data-testid)\n- Use conditional waits, never waitForTimeout\n- Every test must have at least one real value assertion"),
                 messages: [{
                     role: "user",
                     content: ("Generate Playwright E2E tests for these code changes in the " + $domain + " domain.\n\nCODE DIFF:\n" + $diff)
@@ -134,9 +140,10 @@ echo "$CHANGED_FILES" | while IFS= read -r file; do
         GENERATED=$((GENERATED + 1))
     else
         echo "  FAILED: No test generated for $DOMAIN"
-        echo "  API response: $(echo "$RESPONSE" | jq -r '.error.message // "unknown error"')"
+        ERROR_MSG=$(echo "$RESPONSE" | jq -r '.error.message // "unknown error"' 2>/dev/null)
+        echo "  Error: $ERROR_MSG"
     fi
-done
+done <<< "$CHANGED_FILES"
 
 echo ""
 echo "=== Generation complete: $GENERATED test file(s) created ==="
