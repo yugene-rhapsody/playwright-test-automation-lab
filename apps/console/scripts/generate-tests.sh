@@ -108,27 +108,43 @@ while IFS= read -r file; do
 
     EXAMPLES=$(get_example_tests "$DOMAIN")
 
-    # Claude API 호출
+    # Claude API 호출 (임시 파일로 JSON 생성하여 특수문자 문제 방지)
+    REQUEST_FILE=$(mktemp /tmp/claude-req-XXXXXXXX.json)
+
+    python3 -c "
+import json, sys
+data = {
+    'model': 'claude-sonnet-4-20250514',
+    'max_tokens': 8192,
+    'system': '''You are a Playwright E2E test generator.
+
+RULES:
+$(cat "$RULES_FILE" 2>/dev/null || echo "No rules file found")
+
+IMPORTANT:
+- Output ONLY valid TypeScript Playwright test code
+- No markdown fences, no explanations
+- Always import from @playwright/test: import { test, expect } from '@playwright/test'
+- Never import from fixtures or relative paths
+- Use semantic selectors (getByRole, getByText, data-testid)
+- Use conditional waits, never waitForTimeout
+- Every test must have at least one real value assertion''',
+    'messages': [{
+        'role': 'user',
+        'content': 'Generate Playwright E2E tests for these code changes in the $DOMAIN domain.\n\nCODE DIFF:\n' + sys.stdin.read()
+    }]
+}
+json.dump(data, open('$REQUEST_FILE', 'w'))
+" <<< "$DOMAIN_DIFF"
+
     RESPONSE=$(curl -s https://api.anthropic.com/v1/messages \
         -H "Content-Type: application/json" \
         -H "x-api-key: $ANTHROPIC_API_KEY" \
         -H "anthropic-version: 2023-06-01" \
-        -d "$(jq -n \
-            --arg rules "$RULES_CONTENT" \
-            --arg examples "$EXAMPLES" \
-            --arg diff "$DOMAIN_DIFF" \
-            --arg domain "$DOMAIN" \
-            '{
-                model: "claude-sonnet-4-20250514",
-                max_tokens: 8192,
-                system: ("You are a Playwright E2E test generator.\n\nRULES:\n" + $rules + "\n\nEXISTING TEST EXAMPLES:\n" + $examples + "\n\nIMPORTANT:\n- Output ONLY valid TypeScript Playwright test code\n- No markdown fences, no explanations\n- Always import from @playwright/test: import { test, expect } from '\\''@playwright/test'\\'' \n- Never import from fixtures or relative paths\n- Use semantic selectors (getByRole, getByText, data-testid)\n- Use conditional waits, never waitForTimeout\n- Every test must have at least one real value assertion"),
-                messages: [{
-                    role: "user",
-                    content: ("Generate Playwright E2E tests for these code changes in the " + $domain + " domain.\n\nCODE DIFF:\n" + $diff)
-                }]
-            }'
-        )"
+        -d @"$REQUEST_FILE"
     )
+
+    rm -f "$REQUEST_FILE"
 
     TEST_CODE=$(echo "$RESPONSE" | jq -r '.content[0].text // empty')
 
