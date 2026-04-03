@@ -79,7 +79,7 @@ jobs:
 
       - name: Publish Test Summary Results
         if: always()
-        run: npx github-actions-ctrf ctrf/ctrf-report.json
+        run: npx github-actions-ctrf ctrf/ctrf-report.json || true
 
       - name: Fail if tests and healing both failed
         if: steps.test.outcome == 'failure' && steps.heal.outcome == 'failure'
