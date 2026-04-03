@@ -11,79 +11,82 @@ concurrency:
 permissions:
   contents: read
   actions: write
-  packages: read
-  id-token: write
 
 jobs:
   test:
     runs-on: ubuntu-latest
     env:
-      # NODE_AUTH_TOKEN: not needed for lab
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
     defaults:
       run:
         working-directory: apps/console
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
 
       - name: Install dependencies
         run: npm install
-        working-directory: apps/console
 
       - name: Install Playwright Browsers
-        run: npx playwright install chromium
+        run: npx playwright install --with-deps chromium
 
-      - name: Run Playwright Tests
-        id: test
-        run: npx playwright test --retries=2
-        continue-on-error: true
-        env:
-          CI: true
-          PLAYWRIGHT_ENV: 'production'
-
-      - name: Healing Attempt (if tests failed)
-        id: heal
-        if: steps.test.outcome == 'failure'
-        run: bash scripts/heal.sh 2
-        continue-on-error: true
-        env:
-          CI: true
-          PLAYWRIGHT_ENV: 'production'
-
-      - name: Auto Fixme (if healing failed)
-        if: steps.test.outcome == 'failure' && steps.heal.outcome == 'failure'
-        run: bash scripts/auto-fixme.sh
-
-      - name: Generate Allure Report
-        if: always()
+      - name: Detect changed domains
+        id: domains
         run: |
-          npx allure generate allure-results -o allure-report --clean 2>/dev/null || echo "Allure generation skipped"
+          CHANGED=$(git diff origin/main --name-only --diff-filter=ACMR -- 'apps/console/src/' || true)
+          echo "=== Changed files ==="
+          echo "$CHANGED"
+
+          PROJECTS=""
+          if echo "$CHANGED" | grep -qi "campaign"; then PROJECTS="$PROJECTS tests/campaign/"; fi
+          if echo "$CHANGED" | grep -qi "creative"; then PROJECTS="$PROJECTS tests/creative/"; fi
+          if echo "$CHANGED" | grep -qi "ad-unit\|adunit"; then PROJECTS="$PROJECTS tests/ad-unit/"; fi
+          if echo "$CHANGED" | grep -qi "setting"; then PROJECTS="$PROJECTS tests/settings/"; fi
+          if echo "$CHANGED" | grep -qi "dashboard"; then PROJECTS="$PROJECTS tests/dashboard/"; fi
+          if echo "$CHANGED" | grep -qi "payment\|billing"; then PROJECTS="$PROJECTS tests/payments/"; fi
+          if echo "$CHANGED" | grep -qi "auth\|login"; then PROJECTS="$PROJECTS tests/auth/"; fi
+          if echo "$CHANGED" | grep -qi "report"; then PROJECTS="$PROJECTS tests/report/"; fi
+          if echo "$CHANGED" | grep -qi "navigation\|sidebar"; then PROJECTS="$PROJECTS tests/navigation/"; fi
+          if echo "$CHANGED" | grep -qi "onboarding"; then PROJECTS="$PROJECTS tests/onboarding/"; fi
+          if echo "$CHANGED" | grep -qi "targeting"; then PROJECTS="$PROJECTS tests/targeting/"; fi
+          if echo "$CHANGED" | grep -qi "app-crud\|app.*crud"; then PROJECTS="$PROJECTS tests/app-crud/"; fi
+          if echo "$CHANGED" | grep -qi "adproduct"; then PROJECTS="$PROJECTS tests/adproduct/"; fi
+          if echo "$CHANGED" | grep -qi "event"; then PROJECTS="$PROJECTS tests/event/"; fi
+          if echo "$CHANGED" | grep -qi "property"; then PROJECTS="$PROJECTS tests/property/"; fi
+
+          if [ -z "$PROJECTS" ]; then
+            PROJECTS="tests/"
+            echo "No specific domain matched. Running all tests."
+          fi
+
+          echo "test_paths=$PROJECTS" >> $GITHUB_OUTPUT
+          echo "=== Will run: $PROJECTS ==="
+        working-directory: .
+
+      - name: Run Tests
+        run: npx playwright test ${{ steps.domains.outputs.test_paths }} --retries=2
+        env:
+          CI: true
 
       - name: Upload Playwright Report
         uses: actions/upload-artifact@v4
-        if: ${{ !cancelled() }}
+        if: always()
         with:
           name: playwright-report-pr-${{ github.event.pull_request.number }}
           path: apps/console/playwright-report/
           retention-days: 30
+          if-no-files-found: ignore
 
-      - name: Upload Allure Report
-        uses: actions/upload-artifact@v4
-        if: ${{ !cancelled() }}
-        with:
-          name: allure-report-pr-${{ github.event.pull_request.number }}
-          path: apps/console/allure-report/
-          retention-days: 30
-
-      - name: Publish Test Summary Results
+      - name: Publish Test Summary
         if: always()
         run: npx github-actions-ctrf ctrf/ctrf-report.json || true
-
-      - name: Fail if tests and healing both failed
-        if: steps.test.outcome == 'failure' && steps.heal.outcome == 'failure'
-        run: exit 1
 
       - name: Slack Notification
         if: failure()

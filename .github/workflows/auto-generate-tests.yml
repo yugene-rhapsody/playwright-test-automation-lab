@@ -14,7 +14,6 @@ concurrency:
 permissions:
   contents: write
   pull-requests: write
-  packages: read
 
 jobs:
   generate:
@@ -38,9 +37,7 @@ jobs:
         run: |
           echo "=== git log ==="
           git log --oneline -3
-          echo "=== all changed files ==="
-          git diff HEAD~1 --name-only --diff-filter=ACMR || true
-          echo "=== src changes ==="
+          echo "=== changed src files ==="
           CHANGED=$(git diff HEAD~1 --name-only --diff-filter=ACMR -- 'apps/console/src/' | wc -l | tr -d ' ')
           echo "count=$CHANGED" >> $GITHUB_OUTPUT
           echo "$CHANGED source file(s) changed."
@@ -68,7 +65,6 @@ jobs:
           NEW_FILES=$(git status --porcelain apps/console/tests/auto-generated/ | wc -l | tr -d ' ')
           echo "count=$NEW_FILES" >> $GITHUB_OUTPUT
           echo "$NEW_FILES new test file(s) generated."
-          git status --porcelain apps/console/tests/auto-generated/ || true
 
       - name: Create PR with generated tests
         if: steps.changes.outputs.count != '0' && steps.generated.outputs.count != '0'
@@ -88,11 +84,14 @@ jobs:
             --title "test: auto-generated E2E tests ($(date +%Y-%m-%d))" \
             --body "## Auto-Generated Tests
 
-          Claude가 main 브랜치의 코드 변경을 분석하여 자동 생성한 E2E 테스트입니다.
+          Claude가 main의 코드 변경을 분석하여 자동 생성한 E2E 테스트입니다.
 
-          ### 검증
-          - PR 워크플로우에서 자동으로 테스트 실행됩니다
-          - 실패 시 Healing Agent가 자동 수정을 시도합니다" \
+          **리뷰 필요:** 이 PR은 자동 머지되지 않습니다. 사람이 확인 후 머지해주세요.
+
+          ### 확인 사항
+          - [ ] 테스트가 실제 사용자 시나리오를 반영하는가?
+          - [ ] false positive assertion이 없는가?
+          - [ ] 기존 테스트와 중복되지 않는가?" \
             --base main \
             --head "$BRANCH_NAME"
         env:

@@ -1,4 +1,4 @@
-name: E2E CRUD Tests (6시간마다)
+name: E2E CRUD Tests
 
 on:
   workflow_dispatch:
@@ -12,16 +12,12 @@ concurrency:
 permissions:
   contents: read
   actions: write
-  packages: read
-  id-token: write
 
 jobs:
-  test-crud:
+  test:
     runs-on: ubuntu-latest
     env:
-      # NODE_AUTH_TOKEN: not needed for lab
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
     defaults:
       run:
         working-directory: apps/console
@@ -29,48 +25,32 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
       - name: Install dependencies
         run: npm install
-        working-directory: apps/console
 
       - name: Install Playwright Browsers
-        run: npx playwright install chromium
+        run: npx playwright install --with-deps chromium
 
       - name: Run CRUD Tests
-        id: test
         run: npx playwright test --project=crud --retries=2
-        continue-on-error: true
         env:
           CI: true
-          PLAYWRIGHT_ENV: 'production'
-
-      - name: Advanced Healing (max 2 attempts)
-        id: heal
-        if: steps.test.outcome == 'failure'
-        run: bash scripts/heal.sh 2
-        continue-on-error: true
-        env:
-          CI: true
-          PLAYWRIGHT_ENV: 'production'
-
-      - name: Auto Fixme (if healing failed)
-        if: steps.test.outcome == 'failure' && steps.heal.outcome == 'failure'
-        run: bash scripts/auto-fixme.sh
-
-      - name: Generate Allure Report
-        if: always()
-        run: |
-          npx allure generate allure-results -o allure-report --clean 2>/dev/null || echo "Allure generation skipped"
 
       - name: Upload Playwright Report
         uses: actions/upload-artifact@v4
-        if: ${{ !cancelled() }}
+        if: always()
         with:
           name: playwright-report-crud-${{ github.run_number }}
           path: apps/console/playwright-report/
           retention-days: 30
+          if-no-files-found: ignore
 
-      - name: Publish Test Summary Results
+      - name: Publish Test Summary
         if: always()
         run: npx github-actions-ctrf ctrf/ctrf-report.json || true
 

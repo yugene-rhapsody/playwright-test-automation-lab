@@ -7,7 +7,6 @@ on:
     paths:
       - 'apps/console/src/**'
       - 'apps/console/tests/**'
-      - 'packages/**'
 
 concurrency:
   group: main-merge
@@ -16,8 +15,6 @@ concurrency:
 permissions:
   contents: write
   actions: write
-  packages: read
-  id-token: write
   pages: write
 
 jobs:
@@ -25,7 +22,6 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
     defaults:
       run:
         working-directory: apps/console
@@ -40,30 +36,18 @@ jobs:
 
       - name: Install dependencies
         run: npm install
-        working-directory: apps/console
 
       - name: Install Playwright Browsers
         run: npx playwright install --with-deps chromium
 
-      - name: Run Playwright Tests
-        id: test
+      - name: Run Full Tests
         run: npx playwright test --retries=2
-        continue-on-error: true
-        env:
-          CI: true
-
-      - name: Healing (max 1 attempt)
-        id: heal
-        if: steps.test.outcome == 'failure'
-        run: bash scripts/heal.sh 1
-        continue-on-error: true
         env:
           CI: true
 
       - name: Generate Allure Report
         if: always()
-        run: |
-          npx allure generate allure-results -o allure-report --clean || echo "No allure-results found, skipping"
+        run: npx allure generate allure-results -o allure-report --clean || true
         continue-on-error: true
 
       - name: Upload Playwright Report
@@ -72,15 +56,6 @@ jobs:
         with:
           name: playwright-report-main
           path: apps/console/playwright-report/
-          retention-days: 30
-          if-no-files-found: ignore
-
-      - name: Upload Allure Report
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: allure-report-main
-          path: apps/console/allure-report/
           retention-days: 30
           if-no-files-found: ignore
 
