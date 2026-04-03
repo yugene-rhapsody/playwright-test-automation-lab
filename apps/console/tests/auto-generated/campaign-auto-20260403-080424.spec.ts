@@ -1,4 +1,3 @@
-```typescript
 import { test, expect } from '../fixtures/test'
 
 test.describe('캠페인 목록 관리', () => {
@@ -106,4 +105,3 @@ test.describe('캠페인 목록 관리', () => {
         await expect(page.getByTestId('total-budget')).toHaveText('총 예산: 0원')
     })
 })
-```
