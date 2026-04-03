@@ -1,4 +1,4 @@
-import { test, expect } from '../fixtures/test'
+import { test, expect } from '@playwright/test'
 
 test.describe('캠페인 목록 관리', () => {
     test.beforeEach(async ({ page }) => {

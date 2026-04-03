@@ -121,7 +121,7 @@ while IFS= read -r file; do
             '{
                 model: "claude-sonnet-4-20250514",
                 max_tokens: 8192,
-                system: ("You are a Playwright E2E test generator.\n\nRULES:\n" + $rules + "\n\nEXISTING TEST EXAMPLES:\n" + $examples + "\n\nIMPORTANT:\n- Output ONLY valid TypeScript Playwright test code\n- No markdown fences, no explanations\n- Use semantic selectors (getByRole, getByText, data-testid)\n- Use conditional waits, never waitForTimeout\n- Every test must have at least one real value assertion"),
+                system: ("You are a Playwright E2E test generator.\n\nRULES:\n" + $rules + "\n\nEXISTING TEST EXAMPLES:\n" + $examples + "\n\nIMPORTANT:\n- Output ONLY valid TypeScript Playwright test code\n- No markdown fences, no explanations\n- Always import from @playwright/test: import { test, expect } from '\\''@playwright/test'\\'' \n- Never import from fixtures or relative paths\n- Use semantic selectors (getByRole, getByText, data-testid)\n- Use conditional waits, never waitForTimeout\n- Every test must have at least one real value assertion"),
                 messages: [{
                     role: "user",
                     content: ("Generate Playwright E2E tests for these code changes in the " + $domain + " domain.\n\nCODE DIFF:\n" + $diff)
