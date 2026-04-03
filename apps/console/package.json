@@ -1,0 +1,15 @@
+{
+  "name": "playwright-test-automation-lab",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "npx playwright test tests/.",
+    "test:ui": "npx playwright test --ui"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.58.2",
+    "allure-playwright": "^3.0.0",
+    "allure-commandline": "^2.30.0"
+  }
+}

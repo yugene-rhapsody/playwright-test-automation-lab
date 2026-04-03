@@ -1,0 +1,96 @@
+name: E2E Readonly & Lifecycle Tests (하루 1회)
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * *'    # UTC 00:00 = KST 09:00
+
+concurrency:
+  group: e2e-daily
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: write
+  packages: read
+  id-token: write
+  pages: write
+
+jobs:
+  test-daily:
+    runs-on: ubuntu-latest
+    env:
+      # NODE_AUTH_TOKEN: not needed for lab
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    defaults:
+      run:
+        working-directory: apps/console
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: npm install
+        working-directory: .
+
+      - name: Install Playwright Browsers
+        run: npx playwright install chromium
+
+      - name: Run Readonly & E2E Tests
+        id: test
+        run: npx playwright test --project=readonly --project=e2e --retries=2
+        continue-on-error: true
+        env:
+          CI: true
+          PLAYWRIGHT_ENV: 'production'
+
+      - name: Advanced Healing (max 2 attempts)
+        id: heal
+        if: steps.test.outcome == 'failure'
+        run: bash scripts/heal.sh 2
+        continue-on-error: true
+        env:
+          CI: true
+          PLAYWRIGHT_ENV: 'production'
+
+      - name: Auto Fixme (if healing failed)
+        if: steps.test.outcome == 'failure' && steps.heal.outcome == 'failure'
+        run: bash scripts/auto-fixme.sh
+
+      - name: Generate Allure Report
+        if: always()
+        run: |
+          npx allure generate allure-results -o allure-report --clean 2>/dev/null || echo "Allure generation skipped"
+
+      - name: Upload Playwright Report
+        uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: playwright-report-daily-${{ github.run_number }}
+          path: apps/console/playwright-report/
+          retention-days: 30
+
+      - name: Deploy Allure to GitHub Pages
+        if: always()
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: apps/console/allure-report
+          destination_dir: allure
+          keep_files: true
+
+      - name: Publish Test Summary Results
+        if: always()
+        run: npx github-actions-ctrf ctrf/ctrf-report.json
+
+      - name: Slack Notification
+        uses: 8398a7/action-slack@v3
+        with:
+          status: ${{ job.status }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          fields: eventName,job,workflow,author,repo,commit,ref
+          if_mention: failure,cancelled
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        if: failure()
